@@ -1,101 +1,84 @@
-import numpy as np
 import pandas as pd
-from datetime import datetime
-from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
+from sklearn.ensemble import RandomForestClassifier
+import numpy as np
+from datetime import datetime
 
-# CSVファイルの読み込み
-file_path = "./result.csv"
+# flag = "mezamashi"
+flag = "sazae"
+
+# CSVファイルを読み込み
+if flag == "mezamashi":
+    file_path = "./result_mezamashi.csv"
+elif flag == "sazae":
+    file_path = "./result_sazae.csv"
 df = pd.read_csv(file_path)
 
-# # データの先頭を表示して構造を確認
-# print(df.head())
+# 曜日を数値に変換
+weekday_encoder = LabelEncoder()
+df["weekday_code"] = weekday_encoder.fit_transform(df["weekdays"])
 
-# 日付を datetime に変換
-df["date"] = pd.to_datetime(df[["year", "month", "day"]])
+# 手（グー, チョキ, パー）を数値に変換
+result_encoder = LabelEncoder()
+df["result_code"] = result_encoder.fit_transform(df["result"])
 
-# 手を数値にエンコード（グー=0, チョキ=1, パー=2）
-# 授業で実際に使う場合、ここは自力実装の方が望ましいと思う
-label_encoder = LabelEncoder()
-df = df[df["hand"].isin(["グー", "チョキ", "パー"])].copy()
-df["hand_encoded"] = label_encoder.fit_transform(df["hand"])
+# --- モデルA（日付・曜日・回数から予測） ---
+X_A = df[["year", "month", "day", "weekday_code", "times"]]
+y_A = df["result_code"]
 
-# 直近n回の履歴を特徴量にするためのデータ整形関数
-def create_features(data, n_lag=3):
-    features = []
-    targets = []
-    dates = []
-    for i in range(n_lag, len(data)):
-        features.append(data["hand_encoded"].values[i - n_lag:i])
-        targets.append(data["hand_encoded"].values[i])
-        dates.append(data["date"].values[i])
-    return np.array(features), np.array(targets), np.array(dates)
+# 訓練・テスト分割と学習
+X_A_train, X_A_test, y_A_train, y_A_test = train_test_split(X_A, y_A, test_size=0.2, random_state=42)
+model_A = RandomForestClassifier(random_state=42)
+model_A.fit(X_A_train, y_A_train)
 
-# 特徴量とターゲットの作成
-X, y, date_list = create_features(df, n_lag=3)
+# --- モデルB（直近3手から次の手を予測） ---
+# 連続した4手のセットを作成
+sequences = []
+for i in range(len(df) - 3):
+    prev_moves = df["result_code"].iloc[i:i+3].tolist()
+    next_move = df["result_code"].iloc[i+3]
+    sequences.append(prev_moves + [next_move])
 
-# 学習用・検証用に分割
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+df_B = pd.DataFrame(sequences, columns=["prev1", "prev2", "prev3", "next"])
+X_B = df_B[["prev1", "prev2", "prev3"]]
+y_B = df_B["next"]
 
-# モデルの学習
-model = LogisticRegression(max_iter=200)
-model.fit(X_train, y_train)
+# 学習
+X_B_train, X_B_test, y_B_train, y_B_test = train_test_split(X_B, y_B, test_size=0.2, random_state=42)
+model_B = RandomForestClassifier(random_state=42)
+model_B.fit(X_B_train, y_B_train)
 
-# 精度評価
-y_pred = model.predict(X_test)
-# report = classification_report(y_test, y_pred, target_names=label_encoder.classes_)
-report = classification_report(y_test, y_pred, labels=[0,1,2], target_names=label_encoder.classes_)
+# 両モデルの予測関数を定義
+def predict_by_date(year, month, day, times):
+    date_obj = datetime(year, month, day)
+    weekday_str = date_obj.strftime("%a")
+    weekday_code = weekday_encoder.transform([weekday_str])[0]
 
-print("=== report ===")
-print(report)
-print("==============")
-print()
+    # 列名を明示的に指定
+    X_input = pd.DataFrame(
+        [
+            [year, month, day, weekday_code, times]
+        ],
+        columns=["year", "month", "day", "weekday_code", "times"]
+    )
+    pred_code = model_A.predict(X_input)[0]
+    return result_encoder.inverse_transform([pred_code])[0]
 
-# 指定日付までのデータから予測する関数
-def predict_move_on_date(target_date_str, n=3):
-    try:
-        target_date = pd.to_datetime(target_date_str)
-    except:
-        return "日付の形式が正しくありません（例：2000-01-01）"
+def predict_by_prev_moves(prev_moves):
+    move_codes = result_encoder.transform(prev_moves)
     
-    subset = df[df["date"] < target_date]
-    if len(subset) < n:
-        return "指定日までの履歴が不足しています"
-    
-    recent_moves = subset["hand_encoded"].values[-n:]
-    prediction = model.predict([recent_moves])[0]
-    return label_encoder.inverse_transform([prediction])[0]
+    # DataFrameで列名を明示
+    X_input = pd.DataFrame(
+        [move_codes],
+        columns=["prev1", "prev2", "prev3"]
+    )
+    pred_code = model_B.predict(X_input)[0]
+    return result_encoder.inverse_transform([pred_code])[0]
 
-example = predict_move_on_date("2025-05-11")
-print("=== predict_move_on_date ===")
-print(example)
-print("============================")
-print()
-
-# 入力として手のリストを受け取り、その次の手を予測する関数に修正
-def predict_next_move_from_input(hand_list):
-    """
-    hand_list: 直近の手のリスト（例: ["グー", "チョキ", "パー"]）
-    """
-    if len(hand_list) == 0:
-        return "手の入力が空です"
-
-    try:
-        encoded = label_encoder.transform(hand_list)
-    except ValueError as e:
-        return f"無効な手が含まれています: {e}"
-
-    if len(encoded) != model.n_features_in_:
-        return f"{model.n_features_in_} 回分の手を入力してください"
-
-    prediction = model.predict([encoded])[0]
-    return label_encoder.inverse_transform([prediction])[0]
-
-# テスト例
-result2 = predict_next_move_from_input(["パー", "パー", "チョキ"])
-
-print("=== predict_next_move_from_input ===")
-print(result2)
-print("====================================")
+if flag == "mezamashi":
+    print(predict_by_date(2025, 5, 15, 1))
+    print(predict_by_prev_moves(["グー", "チョキ", "パー"]))
+elif flag == "sazae":
+    print(predict_by_date(2025, 5, 11, 1))
+    print(predict_by_prev_moves(["パー", "パー", "チョキ"]))
