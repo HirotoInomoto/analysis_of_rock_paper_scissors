@@ -5,6 +5,9 @@ from sklearn.ensemble import RandomForestClassifier
 import numpy as np
 from datetime import datetime
 
+#追加
+from sklearn.metrics import accuracy_score
+
 # flag = "mezamashi"
 flag = "sazae"
 
@@ -23,7 +26,7 @@ df["weekday_code"] = weekday_encoder.fit_transform(df["weekdays"])
 result_encoder = LabelEncoder()
 df["result_code"] = result_encoder.fit_transform(df["result"])
 
-# --- モデルA（日付・曜日・回数から予測） ---
+# --- モデルA（日付・曜日・回数から予測）データ準備 ---
 X_A = df[["year", "month", "day", "weekday_code", "times"]]
 y_A = df["result_code"]
 
@@ -63,6 +66,10 @@ def predict_by_date(year, month, day, times):
         columns=["year", "month", "day", "weekday_code", "times"]
     )
     pred_code = model_A.predict(X_input)[0]
+
+    #修正点：pred_codeは配列をわざわざ数値に戻しており,しかし、inverse_transformは配列の引数が必要なので、配列にしている
+    # →そのままpred_codeから配列として渡す。
+
     return result_encoder.inverse_transform([pred_code])[0]
 
 def predict_by_prev_moves(prev_moves):
@@ -81,4 +88,18 @@ if flag == "mezamashi":
     print(predict_by_prev_moves(["グー", "チョキ", "パー"]))
 elif flag == "sazae":
     print(predict_by_date(2025, 5, 11, 1))
+    # テストデータで予測
+    y_A_pred = model_A.predict(X_A_test)
+
+    # 正解率（accuracy）を計算
+    accuracy = accuracy_score(y_A_test, y_A_pred)
+    print('モデルAのテスト精度：',accuracy)
+    
     print(predict_by_prev_moves(["パー", "パー", "チョキ"]))
+    # テストデータで予測
+    y_B_pred = model_B.predict(X_B_test)
+
+    # 正解率（accuracy）を計算
+    accuracy = accuracy_score(y_B_test, y_B_pred)
+    print('モデルBのテスト精度：',accuracy)
+
