@@ -8,12 +8,12 @@ from datetime import datetime
 # ---- 1. データ処理 ----
 
 # どちらのデータを使うか選ぶ
-flag = 'sazae'
-
-if flag == "mezamashi":
-    file_path = "./result_mezamashi.csv"
-elif flag == "sazae":
-    file_path = "./result_sazae.csv"
+while True:
+    flag = input("どちらのジャンケンを予測するかを入力してください（sunday/daily）: ")
+    if flag == 'sunday' or flag == 'daily':
+        break  
+# flag = 'sunday' →元コード
+file_path = f"./{flag}_janken.csv"
 
 data = pd.read_csv(file_path)
 
@@ -27,12 +27,12 @@ data["answer_code"] = result_encoder.fit_transform(data["result"])
 
 # ---- 2. モデル学習 ----
 
-# 【モデル】日付・曜日・回数からジャンケンの手を予測
-input = data[["year", "month", "day", "weekday_code", "times"]]  # 入力データ
-answer = data["answer_code"]  # 答え（じゃんけんの手）
+input_data = data[["year", "month", "day", "weekday_code", "times"]]  # 入力データ
+answer_data = data["answer_code"]  # 答え（ジャンケンの手）
+
 # データを学習用とテスト用に分ける（8:2の割合）
-input_train, input_test, answer_train, answer_test = train_test_split(input, answer, test_size=0.2, random_state=20)
-date_model = RandomForestClassifier(random_state=20)
+input_train, input_test, answer_train, answer_test = train_test_split(input_data, answer_data, test_size=0.2, random_state=100)
+date_model = RandomForestClassifier(random_state=100)
 date_model.fit(input_train, answer_train)
 
 # ---- 3. 予測関数 ----
@@ -53,7 +53,20 @@ def date_model_predict(year, month, day, times):
 # ---- 4. 精度評価 ----
 test_pred = date_model.predict(input_test)
 accuracy = accuracy_score(answer_test, test_pred)
-print("モデルのテスト精度:", accuracy)
+print("dateモデルのテスト精度:", accuracy)
 
 #---- 5.実行 ---
-print("dateモデルによる予測:", date_model_predict(2025, 6, 1, 1))
+
+# ここのエラーハンドリングをすべきか
+year = int(input("年を入力してください: "))
+month = int(input("月を入力してください: "))
+day = int(input("日を入力してください: "))
+# ここの日付エラーハンドリングは注釈で載せて置き、それを授業では高度であるので触れないことを教師用メモとして書いておく
+
+
+if flag == "sunday":
+    print(f"日曜日のジャンケンの{year}-{month}-{day} の予測:", date_model_predict(year, month, day, 1))
+elif flag == "daily":
+    times = int(input("何回目のジャンケンかを入力して下さい: "))
+    print(f"毎週のジャンケンの{year}-{month}-{day} の{times}回目の予測:", date_model_predict(year, month, day, times))
+    
