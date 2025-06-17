@@ -1,1 +1,7 @@
 .venv
+daily_janken_gendar.csv
+grid-search-date.py
+grid-search-move.py
+random-search-date.py
+random-search-move.py
+try.py
